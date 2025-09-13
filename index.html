@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Earth Final - No Clouds</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      display: block;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 10;
+    }
+    input[type=range] {
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    🌍 Time: <input type="range" id="timeSlider" min="0" max="24" step="0.1" value="12"><span id="timeDisplay">12:00</span><br>
+    🌈 Atmosphere: <input type="color" id="atmosphereColor" value="#00aaff"><br>
+    ⚡ Speed: <input type="range" id="speedSlider" min="0" max="5" step="0.1" value="1"><br>
+    <button onclick="resetView()">Reset View</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    scene.add(sunLight);
+    scene.add(new THREE.AmbientLight(0x404040, 0.3));
+
+    // Earth
+    const earthGeometry = new THREE.SphereGeometry(2, 64, 64);
+    const textureLoader = new THREE.TextureLoader();
+    const earthTexture = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_2048.jpg');
+    const earthBump = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_normal_2048.jpg');
+    const earthSpecular = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_specular_2048.jpg');
+    const nightTexture = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_lights_2048.jpg');
+
+    const earthMaterial = new THREE.MeshStandardMaterial({
+      map: earthTexture,
+      normalMap: earthBump,
+      specularMap: earthSpecular,
+      emissiveMap: nightTexture,
+      emissive: new THREE.Color(0xffff88),
+      emissiveIntensity: 0
+    });
+    const earth = new THREE.Mesh(earthGeometry, earthMaterial);
+    scene.add(earth);
+
+    // Atmosphere
+    const atmosphereGeometry = new THREE.SphereGeometry(2.1, 64, 64);
+    const atmosphereMaterial = new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vNormal;
+        uniform vec3 glowColor;
+        void main() {
+          float intensity = pow(0.7 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+          gl_FragColor = vec4(glowColor, 1.0) * intensity;
+        }
+      `,
+      uniforms: {
+        glowColor: { value: new THREE.Color(0x00aaff) }
+      },
+      side: THREE.BackSide,
+      blending: THREE.AdditiveBlending,
+      transparent: true
+    });
+    const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+    scene.add(atmosphere);
+
+    // Background planets
+    const moon = createPlanet(0.3, 6, 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/moon_1024.jpg');
+    const mars = createPlanet(0.5, 12, 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/mars_1k_color.jpg');
+    const jupiter = createPlanet(1, 20, 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/jupiter.jpg');
+
+    function createPlanet(size, distance, textureUrl) {
+      const geometry = new THREE.SphereGeometry(size, 32, 32);
+      const material = new THREE.MeshStandardMaterial({ map: textureLoader.load(textureUrl) });
+      const planet = new THREE.Mesh(geometry, material);
+      scene.add(planet);
+      planet.position.x = distance;
+      return planet;
+    }
+
+    camera.position.z = 5;
+
+    // Mouse & Touch
+    let mouseX = 0, mouseY = 0, targetRotationX = 0, targetRotationY = 0;
+    let isDragging = false;
+
+    document.addEventListener('mousedown', () => isDragging = true);
+    document.addEventListener('mouseup', () => isDragging = false);
+    document.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        targetRotationY += (e.clientX - mouseX) * 0.01;
+        targetRotationX += (e.clientY - mouseY) * 0.01;
+      }
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    document.addEventListener('touchstart', () => isDragging = true);
+    document.addEventListener('touchend', () => isDragging = false);
+    document.addEventListener('touchmove', (e) => {
+      if (isDragging && e.touches.length === 1) {
+        const touch = e.touches[0];
+        targetRotationY += (touch.clientX - mouseX) * 0.01;
+        targetRotationX += (touch.clientY - mouseY) * 0.01;
+        mouseX = touch.clientX;
+        mouseY = touch.clientY;
+      }
+    });
+
+    document.addEventListener('wheel', (e) => {
+      camera.position.z += e.deltaY * 0.01;
+      camera.position.z = Math.max(3, Math.min(10, camera.position.z));
+    });
+
+    // UI
+    const timeSlider = document.getElementById('timeSlider');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const atmosphereColorPicker = document.getElementById('atmosphereColor');
+    const speedSlider = document.getElementById('speedSlider');
+
+    timeSlider.addEventListener('input', (e) => {
+      const hours = parseFloat(e.target.value);
+      const minutes = Math.floor((hours % 1) * 60);
+      timeDisplay.textContent = `${Math.floor(hours)}:${minutes.toString().padStart(2, '0')}`;
+      updateSunPosition(hours);
+    });
+
+    atmosphereColorPicker.addEventListener('input', (e) => {
+      atmosphereMaterial.uniforms.glowColor.value = new THREE.Color(e.target.value);
+    });
+
+    function updateSunPosition(hours) {
+      const angle = (hours / 24) * Math.PI * 2 - Math.PI / 2;
+      sunLight.position.set(Math.cos(angle) * 10, 0, Math.sin(angle) * 10);
+      const intensity = Math.max(0, Math.sin(angle));
+      earthMaterial.emissiveIntensity = 1 - intensity;
+    }
+
+    function resetView() {
+      camera.position.set(0, 0, 5);
+      targetRotationX = 0;
+      targetRotationY = 0;
+    }
+
+    // Animation
+    function animate() {
+      requestAnimationFrame(animate);
+      const speed = parseFloat(speedSlider.value);
+      earth.rotation.y += 0.001 * speed;
+      moon.rotation.y += 0.0005 * speed;
+      mars.rotation.y += 0.0004 * speed;
+      jupiter.rotation.y += 0.0003 * speed;
+
+      earth.rotation.y += (targetRotationY - earth.rotation.y) * 0.05;
+      earth.rotation.x += (targetRotationX - earth.rotation.x) * 0.05;
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
